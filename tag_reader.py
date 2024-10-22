@@ -224,15 +224,15 @@ class MainWindow(QMainWindow):
         self.tag_input.setPlaceholderText("Enter Tag")
 
         # size ip input to be able to handle 40 characters
-        self.ip_input.setFixedWidth(400)
+        self.ip_input.setFixedWidth(250)
 
         self.hor_layout = QHBoxLayout()
 
         self.layout.addWidget(self.ip_input)
         self.layout.addWidget(self.tag_input)
         self.layout.addWidget(self.raw_file_checkbox)
-        self.layout.addWidget(self.read_tag_button)
         self.layout.addWidget(self.file_name_input)
+        self.layout.addWidget(self.read_tag_button)
         self.hor_layout.addWidget(self.about_button)
         self.hor_layout.addWidget(self.help_button)
         self.layout.addLayout(self.hor_layout)
