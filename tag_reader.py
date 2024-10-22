@@ -21,12 +21,44 @@ import os
 
 
 def format_csv(og_file, file, include_raw, is_array):
+    '''
+    Formats the csv file to be more readable by pivoting the data and saving it to a new file.
+
+    Parameters:
+        og_file (str):The original file name.
+        file (str):The name of the raw file to be formatted.
+        include_raw (bool):Whether or not to keep the raw file or delete it.
+        is_array (bool):Whether or not the tag is an array.
+
+    Returns:
+        None
+    '''
 
     def extract_index(tag):
+        '''
+        Extracts the index from the tag.
+
+        Parameters:
+            tag (str):The tag name to extract the index from.
+
+        Returns:
+            int: The index of the tag.
+        '''
         match = re.search(r'\[(\d+)\]', tag)
         return int(match.group(1)) if match else None
 
+
     def extract_child_names(tag):
+        '''
+        Extracts the child name from the tag.
+
+        Parameters:
+            tag (str):The tag name to extract the child name from.
+        
+        Returns:
+            str: The child name of the tag.
+        '''
+
         match = re.search(r'\]\.(.+)', tag)
         
         if match:
@@ -34,6 +66,7 @@ def format_csv(og_file, file, include_raw, is_array):
         else:
             match = re.search(r'^(.*?)(?=\[)', tag)
             return match.group(1)
+
 
     df = pd.read_csv(f'{file}.csv')
     df = df.fillna('')
@@ -65,6 +98,18 @@ def format_csv(og_file, file, include_raw, is_array):
 
 
 def flatten_dict(d, parent_key='', sep='.'):
+    '''
+    Flattens a dictionary to be able to write it to a csv file.
+    
+    Parameters:
+        d (dict): The dictionary to flatten.
+        parent_key (str): The parent key of the dictionary.
+        sep (str): The separator to use between keys.
+    
+    Returns:
+        dict: The flattened dictionary
+    '''
+
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -84,6 +129,18 @@ def flatten_dict(d, parent_key='', sep='.'):
 
 
 def write_to_csv(data, csv_file, include_raw, is_array):
+    '''
+    Writes the data to a csv file.
+
+    Parameters:
+        data (dict): The data to write to the csv file.
+        csv_file (str): The name of the csv file to write to.
+        include_raw (bool): Whether or not to include the raw file.
+        is_array (bool): Whether or not the tag is an array.
+
+    Returns:
+        None
+    '''
 
     rev_num = 1
     og_file = csv_file
@@ -106,31 +163,43 @@ def write_to_csv(data, csv_file, include_raw, is_array):
 
 
 def read_tag(tag, ip, file_name_input, include_raw):
+    '''
+    Reads the tag from the PLC and writes it to a csv file.
 
-        with LogixDriver(ip) as plc:
-            read_result = plc.read(tag)
-        
-        print(read_result)
+    Parameters:
+        tag (str): The tag to read from the PLC.
+        ip (str): The IP address of the PLC.
+        file_name_input (str): The name of the file to write the data to.
+        include_raw (bool): Whether or not to include the raw file.
+    
+    Returns:
+        None
+    '''
 
-        # check if the file_name contains illegal characters
-        file_name_input = re.sub(r'[<>:"/\\|?*]', '', file_name_input)
+    with LogixDriver(ip) as plc:
+        read_result = plc.read(tag)
+    
+    print(read_result)
 
-        # remove any leading or trailing whitespace
-        file_name_input = file_name_input.strip()
+    # check if the file_name contains illegal characters
+    file_name_input = re.sub(r'[<>:"/\\|?*]', '', file_name_input)
 
-        # remove file name extension if it exists
-        file_name_input = re.sub(r'\.csv$', '', file_name_input)
-        
-        if not read_result.error:
-            data = {read_result.tag: read_result.value}
-        
-            if type(read_result.value) is list:
-                is_array = True
-            else:
-                is_array = False
+    # remove any leading or trailing whitespace
+    file_name_input = file_name_input.strip()
 
-            data = flatten_dict(data)
-            write_to_csv(data, file_name_input, include_raw, is_array)
+    # remove file name extension if it exists
+    file_name_input = re.sub(r'\.csv$', '', file_name_input)
+    
+    if not read_result.error:
+        data = {read_result.tag: read_result.value}
+    
+        if type(read_result.value) is list:
+            is_array = True
+        else:
+            is_array = False
+
+        data = flatten_dict(data)
+        write_to_csv(data, file_name_input, include_raw, is_array)
 
 
 class MainWindow(QMainWindow):
