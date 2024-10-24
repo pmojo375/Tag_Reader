@@ -18,6 +18,11 @@ import pandas as pd
 import re
 import qdarktheme
 import os
+import logging
+from logging.handlers import RotatingFileHandler
+
+handler = RotatingFileHandler('tag_reader.log', maxBytes=100000, backupCount=5)
+logging.basicConfig(handlers=[handler], level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
 
 
 def format_csv(og_file, file, include_raw, is_array):
@@ -33,6 +38,8 @@ def format_csv(og_file, file, include_raw, is_array):
     Returns:
         None
     '''
+
+    logging.info(f"Formatting CSV: Original File: {og_file}, File: {file}, Include Raw: {include_raw}, Is Array: {is_array}")
 
     def extract_index(tag):
         '''
@@ -110,6 +117,8 @@ def flatten_dict(d, parent_key='', sep='.'):
         dict: The flattened dictionary
     '''
 
+    logging.info(f"Flattening Dictionary: Dictionary: {d}, Parent Key: {parent_key}, Separator: {sep}")
+
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -141,6 +150,8 @@ def write_to_csv(data, csv_file, include_raw, is_array):
     Returns:
         None
     '''
+
+    logging.info(f"Writing to CSV: Data: {data}, CSV File: {csv_file}, Include Raw: {include_raw}, Is Array: {is_array}")
 
     rev_num = 1
     og_file = csv_file
@@ -175,11 +186,14 @@ def read_tag(tag, ip, file_name_input, include_raw):
     Returns:
         None
     '''
+    logging.info(f"Tag Read Requested: Tag: {tag}, IP: {ip}, File Name: {file_name_input}")
 
-    with LogixDriver(ip) as plc:
-        read_result = plc.read(tag)
-    
-    print(read_result)
+    try:
+        with LogixDriver(ip) as plc:
+            read_result = plc.read(tag)
+    except Exception as e:
+        logging.error(f"Connection Error: {e}")
+        return
 
     # check if the file_name contains illegal characters
     file_name_input = re.sub(r'[<>:"/\\|?*]', '', file_name_input)
@@ -200,6 +214,8 @@ def read_tag(tag, ip, file_name_input, include_raw):
 
         data = flatten_dict(data)
         write_to_csv(data, file_name_input, include_raw, is_array)
+    else:
+        logging.error(f"Tag Read Error: {read_result.error}")
 
 
 class MainWindow(QMainWindow):
