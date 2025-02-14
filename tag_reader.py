@@ -18,54 +18,22 @@ import pandas as pd
 import re
 import qdarktheme
 import os
-import logging
-from logging.handlers import RotatingFileHandler
-
-handler = RotatingFileHandler('tag_reader.log', maxBytes=100000, backupCount=5)
-logging.basicConfig(handlers=[handler], level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
 
 
 def format_csv(og_file, file, include_raw, is_array):
-    '''
-    Formats the csv file to be more readable by pivoting the data and saving it to a new file.
-
-    Parameters:
-        og_file (str):The original file name.
-        file (str):The name of the raw file to be formatted.
-        include_raw (bool):Whether or not to keep the raw file or delete it.
-        is_array (bool):Whether or not the tag is an array.
-
-    Returns:
-        None
-    '''
-
-    logging.info(f"Formatting CSV: Original File: {og_file}, File: {file}, Include Raw: {include_raw}, Is Array: {is_array}")
 
     def extract_index(tag):
-        '''
-        Extracts the index from the tag.
-
-        Parameters:
-            tag (str):The tag name to extract the index from.
-
-        Returns:
-            int: The index of the tag.
-        '''
-        match = re.search(r'\[(\d+)\]', tag)
-        return int(match.group(1)) if match else None
-
+        #TODO: Remove Program:programname. from tag before runnning this.
+        split_tag = tag.split('.')[0]
+        match = re.findall(r'\[(\d+)\](?=[^.]*$)', split_tag)
+        if len(match) >= 2:
+            return (int(match[0]) + int(match[1]))
+        elif len(match) == 1:
+            return int(match[0])
+        else:
+            return None
 
     def extract_child_names(tag):
-        '''
-        Extracts the child name from the tag.
-
-        Parameters:
-            tag (str):The tag name to extract the child name from.
-        
-        Returns:
-            str: The child name of the tag.
-        '''
-
         match = re.search(r'\]\.(.+)', tag)
         
         if match:
@@ -73,7 +41,6 @@ def format_csv(og_file, file, include_raw, is_array):
         else:
             match = re.search(r'^(.*?)(?=\[)', tag)
             return match.group(1)
-
 
     df = pd.read_csv(f'{file}.csv')
     df = df.fillna('')
@@ -105,20 +72,6 @@ def format_csv(og_file, file, include_raw, is_array):
 
 
 def flatten_dict(d, parent_key='', sep='.'):
-    '''
-    Flattens a dictionary to be able to write it to a csv file.
-    
-    Parameters:
-        d (dict): The dictionary to flatten.
-        parent_key (str): The parent key of the dictionary.
-        sep (str): The separator to use between keys.
-    
-    Returns:
-        dict: The flattened dictionary
-    '''
-
-    logging.info(f"Flattening Dictionary: Dictionary: {d}, Parent Key: {parent_key}, Separator: {sep}")
-
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -138,20 +91,6 @@ def flatten_dict(d, parent_key='', sep='.'):
 
 
 def write_to_csv(data, csv_file, include_raw, is_array):
-    '''
-    Writes the data to a csv file.
-
-    Parameters:
-        data (dict): The data to write to the csv file.
-        csv_file (str): The name of the csv file to write to.
-        include_raw (bool): Whether or not to include the raw file.
-        is_array (bool): Whether or not the tag is an array.
-
-    Returns:
-        None
-    '''
-
-    logging.info(f"Writing to CSV: Data: {data}, CSV File: {csv_file}, Include Raw: {include_raw}, Is Array: {is_array}")
 
     rev_num = 1
     og_file = csv_file
@@ -174,48 +113,30 @@ def write_to_csv(data, csv_file, include_raw, is_array):
 
 
 def read_tag(tag, ip, file_name_input, include_raw):
-    '''
-    Reads the tag from the PLC and writes it to a csv file.
 
-    Parameters:
-        tag (str): The tag to read from the PLC.
-        ip (str): The IP address of the PLC.
-        file_name_input (str): The name of the file to write the data to.
-        include_raw (bool): Whether or not to include the raw file.
-    
-    Returns:
-        None
-    '''
-    logging.info(f"Tag Read Requested: Tag: {tag}, IP: {ip}, File Name: {file_name_input}")
-
-    try:
         with LogixDriver(ip) as plc:
             read_result = plc.read(tag)
-    except Exception as e:
-        logging.error(f"Connection Error: {e}")
-        return
 
-    # check if the file_name contains illegal characters
-    file_name_input = re.sub(r'[<>:"/\\|?*]', '', file_name_input)
+        # check if the file_name contains illegal characters
+        file_name_input = re.sub(r'[<>:"/\\|?*]', '', file_name_input)
 
-    # remove any leading or trailing whitespace
-    file_name_input = file_name_input.strip()
+        # remove any leading or trailing whitespace
+        file_name_input = file_name_input.strip()
 
-    # remove file name extension if it exists
-    file_name_input = re.sub(r'\.csv$', '', file_name_input)
-    
-    if not read_result.error:
-        data = {read_result.tag: read_result.value}
-    
-        if type(read_result.value) is list:
-            is_array = True
-        else:
-            is_array = False
+        # remove file name extension if it exists
+        file_name_input = re.sub(r'\.csv$', '', file_name_input)
+        
+        if not read_result.error:
+            data = {read_result.tag: read_result.value}
+        
+            if type(read_result.value) is list:
+                is_array = True
+            else:
+                is_array = False
 
-        data = flatten_dict(data)
-        write_to_csv(data, file_name_input, include_raw, is_array)
-    else:
-        logging.error(f"Tag Read Error: {read_result.error}")
+            data = flatten_dict(data)
+
+            write_to_csv(data, file_name_input, include_raw, is_array)
 
 
 class MainWindow(QMainWindow):
@@ -240,15 +161,15 @@ class MainWindow(QMainWindow):
         self.tag_input.setPlaceholderText("Enter Tag")
 
         # size ip input to be able to handle 40 characters
-        self.ip_input.setFixedWidth(250)
+        self.ip_input.setFixedWidth(400)
 
         self.hor_layout = QHBoxLayout()
 
         self.layout.addWidget(self.ip_input)
         self.layout.addWidget(self.tag_input)
         self.layout.addWidget(self.raw_file_checkbox)
-        self.layout.addWidget(self.file_name_input)
         self.layout.addWidget(self.read_tag_button)
+        self.layout.addWidget(self.file_name_input)
         self.hor_layout.addWidget(self.about_button)
         self.hor_layout.addWidget(self.help_button)
         self.layout.addLayout(self.hor_layout)
