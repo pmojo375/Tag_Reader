@@ -23,7 +23,7 @@ import os
 def format_csv(og_file, file, include_raw, is_array):
 
     def extract_index(tag):
-        #TODO: Remove Program:programname. from tag before runnning this.
+        tag = re.sub(r'^Program:[^.]+\.', '', tag)
         split_tag = tag.split('.')[0]
         match = re.findall(r'\[(\d+)\](?=[^.]*$)', split_tag)
         if len(match) >= 2:
