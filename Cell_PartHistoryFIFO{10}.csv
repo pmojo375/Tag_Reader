@@ -1,0 +1,11 @@
+index,AxialNonUniformityGrade,AxialNonUniformityRating,CTLStatus,CellContrastGrade,CellContrastRating,CellModulationGrade,CellModulationRating,DataMatrix_Code,Date,Feature101Data,Feature22DataHigh,Feature22DataLow,Feature91Data,Feature93Data,Feature94Data,Feature95Data,Feature99Data,FixedPatternDamageGrade,FixedPatternDamageRating,FlatnessStatus,GridNonUniformityGrade,GridNonUniformityRating,JobNumber,JobNumberTrimmed,OperatingCrew,OperatorID,OverallDimStatus,ParallelismStatus,PartMarkingStatus,PerpendicularityStatus,ReferenceDecodeGrade,ReferenceDecodeRating,SerialNumber,SupplierCode,Time,Type,UnusedErrorCorrectionGrade,UnusedErrorCorrectionRating
+0,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+1,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+2,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+3,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+4,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+5,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+6,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+7,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+8,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0
+9,,0.0,0.0,,0.0,,0.0,,,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,,0.0,0.0,,0.0,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,0.0

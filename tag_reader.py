@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
     QMainWindow,
-    QPushButton,pip
+    QPushButton,
     QVBoxLayout,
     QWidget,
     QMessageBox,
