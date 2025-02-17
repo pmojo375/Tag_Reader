@@ -20,6 +20,14 @@ import re
 import qdarktheme
 import os
 
+basedir = os.path.dirname(__file__)
+
+try:
+    from ctypes import windll  # Only exists on Windows.
+    tag_reader_tool_id = 'PM_Development.Tag_Reader_Tool.1.2'
+    windll.shell32.SetCurrentProcessExplicitAppUserModelID(tag_reader_tool_id)
+except ImportError:
+    pass
 
 def format_csv(og_file, file, include_raw, is_array, save_location):
 
@@ -193,7 +201,7 @@ class MainWindow(QMainWindow):
             lambda: QMessageBox.about(self, "About", "This tool was written by Parker Mojsiejenko.\n\nIt uses the following libraries:\n - pycomm3\n - PySide6\n - pandas\n - qdarktheme"))
 
         self.help_button.clicked.connect(
-            lambda: QMessageBox.about(self, "Help", "This tool requires tag names to be formatted in a specific way to read their data.\n\nIf the tag is an array, it will be in the following format: tag_name[start]{length}\n\nThe [start] can be omitted if you want to start at [0] and if the length is omitted, it will only read the [x] (or [0] if its omitted) member of the array.\n\nIf the tags are program scope tags, the tag name will need to start with Program:program_name.rest_of_tag_name.\n\nFor example, if you want to read a program scope array tag named my_array and start at the 5th member and read 50 members, the tag name would be my_array[4]{50} and if it was a program scope tag in the program my_program it would be Program:my_program.my_array[4]{50}\n\nTwo files will be outputted: one with the raw data and one with the data formatted in a more readable way. If you use a file name that already exists, it will overwrite the existing file. And if the file name is not entered, it will output the file name as tag_data.csv. These files will be saved in the same directory as the tool."))
+            lambda: QMessageBox.about(self, "Help", "This tool requires tag names to be formatted in a specific way to read their data.\n\nIf the tag is an array, it will be in the following format: tag_name[start]{length}\n\nThe [start] can be omitted if you want to start at [0] and if the length is omitted, it will only read the [x] (or [0] if its omitted) member of the array.\n\nIf the tags are program scope tags, the tag name will need to start with Program:program_name.rest_of_tag_name.\n\nFor example, if you want to read a program scope array tag named my_array and start at the 5th member and read 50 members, the tag name would be my_array[4]{50} and if it was a program scope tag in the program my_program it would be Program:my_program.my_array[4]{50}\n\nIf the Output Raw File check box is checked, the non-formatted file will also be created. Both files will be saved in the specified folder you selected and if no folder was specified, the files will be saved where the EXE file resides.\n\nThe tool will not overwrite any previous CSV files. If one already exists with the same name, it will append a revision number that will increment each time a file is created and saved."))
         
         self.csv_save_path_browse_button.clicked.connect(
             lambda: self.csv_save_path_input.setText(QFileDialog.getExistingDirectory()))
@@ -245,7 +253,7 @@ class MainWindow(QMainWindow):
 
 app = QApplication(sys.argv)
 app.processEvents()
-app.setWindowIcon(QtGui.QIcon('icon.ico'))
+app.setWindowIcon(QtGui.QIcon(os.path.join(basedir, 'icon.ico')))
 qdarktheme.setup_theme()
 window = MainWindow()
 window.resize(1000, 800)
