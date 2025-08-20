@@ -20,6 +20,10 @@ import re
 import qdarktheme
 import os
 
+# Constants for better maintainability
+WINDOW_SIZE = (1000, 800)
+IP_INPUT_WIDTH = 400
+
 basedir = os.path.dirname(__file__)
 
 try:
@@ -29,55 +33,72 @@ try:
 except ImportError:
     pass
 
-def format_csv(og_file, file, include_raw, is_array, save_location):
+def sanitize_filename(filename):
+    """Remove or replace invalid characters from filename"""
+    # Remove invalid characters
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Remove leading/trailing whitespace and dots
+    filename = filename.strip().strip('.')
+    # Remove .csv extension if present
+    filename = re.sub(r'\.csv$', '', filename)
+    return filename
 
-    def extract_index(tag):
-        tag = re.sub(r'^Program:[^.]+\.', '', tag)
-        split_tag = tag.split('.')[0]
-        match = re.findall(r'\[(\d+)\](?=[^.]*$)', split_tag)
-        if len(match) >= 2:
-            return (int(match[0]) + int(match[1]))
-        elif len(match) == 1:
-            return int(match[0])
-        else:
-            return None
-
-    def extract_child_names(tag):
-        match = re.search(r'\]\.(.+)', tag)
-        
-        if match:
-            return match.group(1)
-        else:
-            match = re.search(r'^(.*?)(?=\[)', tag)
-            return match.group(1)
-
-    df = pd.read_csv(f'{save_location}\\{file}.csv')
-    df = df.fillna('')
-
-    if is_array:
-        df['index'] = df['tag'].apply(extract_index)
-        df['child_name'] = df['tag'].apply(extract_child_names)
-
-        df_pivot = df.pivot_table(index='index', columns='child_name', values='value', aggfunc='first')
-
-        df_pivot.reset_index(inplace=True)
-
+def extract_index(tag):
+    tag = re.sub(r'^Program:[^.]+\.', '', tag)
+    split_tag = tag.split('.')[0]
+    match = re.findall(r'\[(\d+)\](?=[^.]*$)', split_tag)
+    if len(match) >= 2:
+        return (int(match[0]) + int(match[1]))
+    elif len(match) == 1:
+        return int(match[0])
     else:
-        df_pivot = df.set_index('tag').T
+        return None
 
-    rev_num = 1
+def extract_child_names(tag):
+    match = re.search(r'\]\.(.+)', tag)
+    
+    if match:
+        return match.group(1)
+    else:
+        match = re.search(r'^(.*?)(?=\[)', tag)
+        return match.group(1)
 
-    if os.path.exists(f'{save_location}\\{og_file}.csv'):
-        while os.path.exists(f'{save_location}\\{og_file}_{rev_num}.csv'):
-            rev_num += 1
+def format_csv(og_file, file, include_raw, is_array, save_location):
+    try:
+        # Use os.path.join for cross-platform compatibility
+        df = pd.read_csv(os.path.join(save_location, f'{file}.csv'))
+        df = df.fillna('')
 
-        og_file = f'{og_file}_{rev_num}'
+        if is_array:
+            df['index'] = df['tag'].apply(extract_index)
+            df['child_name'] = df['tag'].apply(extract_child_names)
 
-    df_pivot.to_csv(f'{save_location}\\{og_file}.csv', index=False)
+            df_pivot = df.pivot_table(index='index', columns='child_name', values='value', aggfunc='first')
 
-    if not include_raw:
-        # remove raw file
-        os.remove(f'{save_location}\\{file}.csv')
+            df_pivot.reset_index(inplace=True)
+
+        else:
+            df_pivot = df.set_index('tag').T
+
+        rev_num = 1
+
+        if os.path.exists(os.path.join(save_location, f'{og_file}.csv')):
+            while os.path.exists(os.path.join(save_location, f'{og_file}_{rev_num}.csv')):
+                rev_num += 1
+
+            og_file = f'{og_file}_{rev_num}'
+
+        df_pivot.to_csv(os.path.join(save_location, f'{og_file}.csv'), index=False)
+
+        if not include_raw:
+            # remove raw file
+            os.remove(os.path.join(save_location, f'{file}.csv'))
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error formatting CSV: {e}")
+        return False
 
 
 def flatten_dict(d, parent_key='', sep='.'):
@@ -99,41 +120,47 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
+
+
+
 def write_to_csv(data, csv_file, include_raw, is_array, save_location):
+    try:
+        rev_num = 1
+        og_file = csv_file
 
-    rev_num = 1
-    og_file = csv_file
+        if os.path.exists(os.path.join(save_location, f'{csv_file}_raw.csv')):
+            while os.path.exists(os.path.join(save_location, f'{csv_file}_raw_{rev_num}.csv')):
+                rev_num += 1
+            csv_file = f'{csv_file}_raw_{rev_num}'
+        else:
+            csv_file = f'{csv_file}_raw'
 
-    if os.path.exists(f'{save_location}\\{csv_file}_raw.csv'):
-        while os.path.exists(f'{save_location}\\{csv_file}_raw_{rev_num}.csv'):
-            rev_num += 1
+        csv_path = os.path.join(save_location, f'{csv_file}.csv')
+        with open(csv_path, 'w', newline='') as cf:
+            writer = csv.DictWriter(cf, fieldnames=['tag', 'value'])
+            writer.writeheader()
+            for tag, value in data.items():
+                writer.writerow({'tag': tag, 'value': value})
 
-        csv_file = f'{csv_file}_raw_{rev_num}'
-    else:
-        csv_file = f'{csv_file}_raw'
-
-    with open(f'{save_location}\\{csv_file}.csv', 'w', newline='') as cf:
-        writer = csv.DictWriter(cf, fieldnames=['tag', 'value'])
-        writer.writeheader()
-        for tag, value in data.items():
-            writer.writerow({'tag': tag, 'value': value})
-
-    format_csv(og_file, csv_file, include_raw, is_array, save_location)
+        success = format_csv(og_file, csv_file, include_raw, is_array, save_location)
+        return success
+        
+    except Exception as e:
+        print(f"Error writing CSV: {e}")
+        return False
 
 
 def read_tag(tag, ip, file_name_input, include_raw, save_location):
-
+    try:
         with LogixDriver(ip) as plc:
             read_result = plc.read(tag)
+            
+        if read_result.error:
+            print(f"PLC read error: {read_result.error}")
+            return False
 
-        # check if the file_name contains illegal characters
-        file_name_input = re.sub(r'[<>:"/\\|?*]', '', file_name_input)
-
-        # remove any leading or trailing whitespace
-        file_name_input = file_name_input.strip()
-
-        # remove file name extension if it exists
-        file_name_input = re.sub(r'\.csv$', '', file_name_input)
+        # Use sanitize_filename function for better file handling
+        file_name_input = sanitize_filename(file_name_input)
         
         if not read_result.error:
             data = {read_result.tag: read_result.value}
@@ -145,7 +172,15 @@ def read_tag(tag, ip, file_name_input, include_raw, save_location):
 
             data = flatten_dict(data)
 
-            write_to_csv(data, file_name_input, include_raw, is_array, save_location)
+            success = write_to_csv(data, file_name_input, include_raw, is_array, save_location)
+            return success
+        else:
+            print(f"PLC read error: {read_result.error}")
+            return False
+            
+    except Exception as e:
+        print(f"Error reading tag: {e}")
+        return False
 
 
 class MainWindow(QMainWindow):
@@ -178,7 +213,7 @@ class MainWindow(QMainWindow):
         self.tag_input.setPlaceholderText("Enter Tag")
 
         # size ip input to be able to handle 40 characters
-        self.ip_input.setFixedWidth(400)
+        self.ip_input.setFixedWidth(IP_INPUT_WIDTH)
 
         self.hor_layout = QHBoxLayout()
 
@@ -214,19 +249,32 @@ class MainWindow(QMainWindow):
         
 
     def read_tag_clicked(self, tag_input, ip_input, save_location):
-        if save_location == '':
-            save_location_path = '.'
-        else:
-            save_location_path = save_location
+        try:
+            # Validate inputs first
+            if self.file_name_input.text() == '':
+                file_name = tag_input
+            else:
+                file_name = self.file_name_input.text()
+            
+            self.validate_inputs(tag_input, ip_input, file_name)
+            
+            if save_location == '':
+                save_location_path = '.'
+            else:
+                save_location_path = save_location
 
-        if self.file_name_input.text() == '':
-            file_name = tag_input
-        else:
-            file_name = self.file_name_input.text()
-
-        read_tag(tag_input, ip_input, file_name, self.raw_file_checkbox.isChecked(), save_location)
-
-        self.save_history()
+            success = read_tag(tag_input, ip_input, file_name, self.raw_file_checkbox.isChecked(), save_location)
+            
+            if success:
+                self.save_history()
+                QMessageBox.information(self, "Success", "Tag read successfully!")
+            else:
+                QMessageBox.warning(self, "Warning", "Tag read failed. Check console for details.")
+                
+        except ValueError as e:
+            QMessageBox.critical(self, "Input Error", str(e))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}")
 
 
     def read_history(self):
@@ -244,6 +292,18 @@ class MainWindow(QMainWindow):
         self.raw_file_checkbox.setChecked(checked)
 
 
+    def validate_inputs(self, tag, ip, file_name):
+        """Validate user inputs before processing"""
+        if not tag.strip():
+            raise ValueError("Tag name cannot be empty")
+        
+        if not ip.strip():
+            raise ValueError("IP address cannot be empty")
+        
+        if not file_name.strip():
+            raise ValueError("File name cannot be empty")
+
+
     def save_history(self):
         self.settings.setValue('ip', self.ip_input.text())
         self.settings.setValue('tag', self.tag_input.text())
@@ -256,7 +316,7 @@ app.processEvents()
 app.setWindowIcon(QtGui.QIcon(os.path.join(basedir, 'icon.ico')))
 qdarktheme.setup_theme()
 window = MainWindow()
-window.resize(1000, 800)
+window.resize(*WINDOW_SIZE)
 window.show()
 
 app.exec()
