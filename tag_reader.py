@@ -120,9 +120,6 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
-
-
-
 def write_to_csv(data, csv_file, include_raw, is_array, save_location):
     try:
         rev_num = 1
@@ -259,9 +256,7 @@ class MainWindow(QMainWindow):
             self.validate_inputs(tag_input, ip_input, file_name)
             
             if save_location == '':
-                save_location_path = '.'
-            else:
-                save_location_path = save_location
+                save_location = '.'
 
             success = read_tag(tag_input, ip_input, file_name, self.raw_file_checkbox.isChecked(), save_location)
             
