@@ -19,6 +19,7 @@ import pandas as pd
 import re
 import qdarktheme
 import os
+from collections import defaultdict
 
 # Constants for better maintainability
 WINDOW_SIZE = (1000, 800)
@@ -45,8 +46,7 @@ def sanitize_filename(filename):
 
 def extract_index(tag):
     tag = re.sub(r'^Program:[^.]+\.', '', tag)
-    split_tag = tag.split('.')[0]
-    match = re.findall(r'\[(\d+)\](?=[^.]*$)', split_tag)
+    match = re.findall(r'\[(\d+)\]', tag)
     if len(match) >= 2:
         return (int(match[0]) + int(match[1]))
     elif len(match) == 1:
@@ -54,14 +54,36 @@ def extract_index(tag):
     else:
         return None
 
+def should_format_as_array(data, top_level_is_list=False):
+    """Pivot only for direct array reads or pure array data (no mixed struct fields)."""
+    if top_level_is_list:
+        return True
+
+    has_unindexed_tags = any(extract_index(tag) is None for tag in data)
+    if has_unindexed_tags:
+        return False
+
+    index_to_children = defaultdict(set)
+    for tag in data:
+        idx = extract_index(tag)
+        if idx is not None:
+            index_to_children[idx].add(extract_child_names(tag))
+
+    if not index_to_children:
+        return False
+
+    return max(len(children) for children in index_to_children.values()) > 1
+
 def extract_child_names(tag):
     match = re.search(r'\]\.(.+)', tag)
-    
     if match:
         return match.group(1)
-    else:
-        match = re.search(r'^(.*?)(?=\[)', tag)
+
+    match = re.search(r'^(.*?)(?=\[)', tag)
+    if match:
         return match.group(1)
+
+    return tag.split('.')[-1]
 
 def format_csv(og_file, file, include_raw, is_array, save_location):
     try:
@@ -162,12 +184,9 @@ def read_tag(tag, ip, file_name_input, include_raw, save_location):
         if not read_result.error:
             data = {read_result.tag: read_result.value}
         
-            if type(read_result.value) is list:
-                is_array = True
-            else:
-                is_array = False
-
             data = flatten_dict(data)
+            is_array = should_format_as_array(
+                data, top_level_is_list=type(read_result.value) is list)
 
             success = write_to_csv(data, file_name_input, include_raw, is_array, save_location)
             return success
