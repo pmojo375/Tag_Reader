@@ -1,4 +1,5 @@
-from PySide6.QtCore import QSettings, QThread, Signal
+from PySide6.QtCore import QSettings, QThread, Signal, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
@@ -180,7 +181,7 @@ def read_tag(tag, ip, file_name_input, include_raw, save_location):
             read_result = plc.read(tag)
 
         if read_result.error:
-            return False, f"PLC read error: {read_result.error}"
+            return False, f"PLC read error: {read_result.error}", ''
 
         file_name_input = sanitize_filename(file_name_input)
         data = {read_result.tag: read_result.value}
@@ -188,18 +189,18 @@ def read_tag(tag, ip, file_name_input, include_raw, save_location):
         is_array = should_format_as_array(
             data, top_level_is_list=type(read_result.value) is list)
 
-        success, message = write_to_csv(
+        success, output_path = write_to_csv(
             data, file_name_input, include_raw, is_array, save_location)
         if success:
-            return True, f"Tag read successfully!\n\nSaved to:\n{message}"
-        return False, message
+            return True, f"Tag read successfully!\n\nSaved to:\n{output_path}", output_path
+        return False, output_path, ''
 
     except Exception as e:
-        return False, f"Error reading tag: {e}"
+        return False, f"Error reading tag: {e}", ''
 
 
 class TagReadWorker(QThread):
-    finished = Signal(bool, str)
+    finished = Signal(bool, str, str)
 
     def __init__(self, tag, ip, file_name, include_raw, save_location):
         super().__init__()
@@ -210,10 +211,10 @@ class TagReadWorker(QThread):
         self.save_location = save_location
 
     def run(self):
-        success, message = read_tag(
+        success, message, output_path = read_tag(
             self.tag, self.ip, self.file_name,
             self.include_raw, self.save_location)
-        self.finished.emit(success, message)
+        self.finished.emit(success, message, output_path)
 
 
 class MainWindow(QMainWindow):
@@ -264,9 +265,14 @@ class MainWindow(QMainWindow):
 
         self.read_history()
 
-        self.read_tag_button.clicked.connect(
-            lambda: self.read_tag_clicked(self.tag_input.text(), self.ip_input.text(), self.csv_save_path_input.text()))
-        
+        self.read_tag_button.clicked.connect(self._trigger_read)
+
+        for line_edit in (
+            self.ip_input, self.tag_input,
+            self.file_name_input, self.csv_save_path_input,
+        ):
+            line_edit.returnPressed.connect(self._trigger_read)
+
         self.about_button.clicked.connect(
             lambda: QMessageBox.about(self, "About", "This tool was written by Parker Mojsiejenko.\n\nIt uses the following libraries:\n - pycomm3\n - PySide6\n - qdarktheme"))
 
@@ -276,12 +282,16 @@ class MainWindow(QMainWindow):
         self.csv_save_path_browse_button.clicked.connect(
             lambda: self.csv_save_path_input.setText(QFileDialog.getExistingDirectory()))
 
-        self.setFixedSize(self.layout.sizeHint())
-        # Set central widget
         widget = QWidget()
         widget.setLayout(self.layout)
         self.setCentralWidget(widget)
-        
+        self.setFixedSize(self.layout.sizeHint())
+
+    def _trigger_read(self):
+        self.read_tag_clicked(
+            self.tag_input.text(),
+            self.ip_input.text(),
+            self.csv_save_path_input.text())
 
     def read_tag_clicked(self, tag_input, ip_input, save_location):
         if self._read_worker and self._read_worker.isRunning():
@@ -314,15 +324,28 @@ class MainWindow(QMainWindow):
         self.read_tag_button.setEnabled(not reading)
         self.read_tag_button.setText("Reading..." if reading else "Read Tag")
 
-    def _on_read_finished(self, success, message):
+    def _on_read_finished(self, success, message, output_path):
         self._set_reading_state(False)
         self._read_worker = None
 
         if success:
             self.save_history()
-            QMessageBox.information(self, "Success", message)
+            self._show_success_dialog(message, output_path)
         else:
             QMessageBox.warning(self, "Tag Read Failed", message)
+
+    def _show_success_dialog(self, message, output_path):
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Information)
+        dialog.setWindowTitle("Success")
+        dialog.setText(message)
+        open_folder_btn = dialog.addButton("Open Folder", QMessageBox.ActionRole)
+        dialog.addButton(QMessageBox.Ok)
+        dialog.exec()
+
+        if dialog.clickedButton() == open_folder_btn:
+            folder = os.path.dirname(output_path)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
 
     def read_history(self):
@@ -364,7 +387,6 @@ app.processEvents()
 app.setWindowIcon(QtGui.QIcon(os.path.join(basedir, 'icon.ico')))
 qdarktheme.setup_theme()
 window = MainWindow()
-window.resize(*WINDOW_SIZE)
 window.show()
 
 app.exec()
