@@ -27,6 +27,28 @@ IP_INPUT_WIDTH = 400
 
 basedir = os.path.dirname(__file__)
 
+
+def get_default_save_location():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return basedir
+
+
+def resolve_save_location(save_location):
+    if not save_location.strip():
+        save_location = get_default_save_location()
+
+    save_location = os.path.abspath(save_location)
+
+    if not os.path.isdir(save_location):
+        raise ValueError(f"Save location does not exist:\n{save_location}")
+
+    if not os.access(save_location, os.W_OK):
+        raise ValueError(f"Save location is not writable:\n{save_location}")
+
+    return save_location
+
+
 try:
     from ctypes import windll  # Only exists on Windows.
     tag_reader_tool_id = 'PM_Development.Tag_Reader_Tool.1.2'
@@ -304,9 +326,7 @@ class MainWindow(QMainWindow):
                 file_name = self.file_name_input.text()
 
             self.validate_inputs(tag_input, ip_input, file_name)
-
-            if save_location == '':
-                save_location = '.'
+            save_location = resolve_save_location(save_location)
 
             self._set_reading_state(True)
             self._read_worker = TagReadWorker(
