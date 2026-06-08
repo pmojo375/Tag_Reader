@@ -15,7 +15,6 @@ from PySide6 import QtGui
 import sys
 from pycomm3 import LogixDriver
 import csv
-import pandas as pd
 import re
 import qdarktheme
 import os
@@ -85,41 +84,60 @@ def extract_child_names(tag):
 
     return tag.split('.')[-1]
 
-def format_csv(og_file, file, include_raw, is_array, save_location):
-    try:
-        # Use os.path.join for cross-platform compatibility
-        df = pd.read_csv(os.path.join(save_location, f'{file}.csv'))
-        df = df.fillna('')
+def get_revisioned_filename(base_name, save_location, suffix=''):
+    name = f'{base_name}{suffix}'
+    if not os.path.exists(os.path.join(save_location, f'{name}.csv')):
+        return name
 
+    rev_num = 1
+    while os.path.exists(os.path.join(save_location, f'{base_name}{suffix}_{rev_num}.csv')):
+        rev_num += 1
+    return f'{base_name}{suffix}_{rev_num}'
+
+
+def pivot_array_data(data):
+    rows = defaultdict(dict)
+    columns = set()
+
+    for tag, value in data.items():
+        idx = extract_index(tag)
+        child = extract_child_names(tag)
+        columns.add(child)
+        rows[idx][child] = value
+
+    column_list = sorted(columns)
+    header = ['index'] + column_list
+    body = [
+        [idx] + [rows[idx].get(col, '') for col in column_list]
+        for idx in sorted(rows.keys())
+    ]
+    return header, body
+
+
+def transpose_tag_data(data):
+    tags = list(data.keys())
+    return tags, [data[tag] for tag in tags]
+
+
+def write_raw_csv(data, path):
+    with open(path, 'w', newline='') as cf:
+        writer = csv.DictWriter(cf, fieldnames=['tag', 'value'])
+        writer.writeheader()
+        for tag, value in data.items():
+            writer.writerow({'tag': tag, 'value': value if value is not None else ''})
+
+
+def write_formatted_csv(data, is_array, output_path):
+    with open(output_path, 'w', newline='') as f:
+        writer = csv.writer(f)
         if is_array:
-            df['index'] = df['tag'].apply(extract_index)
-            df['child_name'] = df['tag'].apply(extract_child_names)
-
-            df_pivot = df.pivot_table(index='index', columns='child_name', values='value', aggfunc='first')
-
-            df_pivot.reset_index(inplace=True)
-
+            header, body = pivot_array_data(data)
+            writer.writerow(header)
+            writer.writerows(body)
         else:
-            df_pivot = df.set_index('tag').T
-
-        rev_num = 1
-
-        if os.path.exists(os.path.join(save_location, f'{og_file}.csv')):
-            while os.path.exists(os.path.join(save_location, f'{og_file}_{rev_num}.csv')):
-                rev_num += 1
-
-            og_file = f'{og_file}_{rev_num}'
-
-        df_pivot.to_csv(os.path.join(save_location, f'{og_file}.csv'), index=False)
-
-        if not include_raw:
-            os.remove(os.path.join(save_location, f'{file}.csv'))
-
-        output_path = os.path.join(save_location, f'{og_file}.csv')
-        return True, output_path
-
-    except Exception as e:
-        return False, f"Error formatting CSV: {e}"
+            header, values = transpose_tag_data(data)
+            writer.writerow(header)
+            writer.writerow([v if v is not None else '' for v in values])
 
 
 def flatten_dict(d, parent_key='', sep='.'):
@@ -143,24 +161,14 @@ def flatten_dict(d, parent_key='', sep='.'):
 
 def write_to_csv(data, csv_file, include_raw, is_array, save_location):
     try:
-        rev_num = 1
-        og_file = csv_file
+        if include_raw:
+            raw_name = get_revisioned_filename(csv_file, save_location, '_raw')
+            write_raw_csv(data, os.path.join(save_location, f'{raw_name}.csv'))
 
-        if os.path.exists(os.path.join(save_location, f'{csv_file}_raw.csv')):
-            while os.path.exists(os.path.join(save_location, f'{csv_file}_raw_{rev_num}.csv')):
-                rev_num += 1
-            csv_file = f'{csv_file}_raw_{rev_num}'
-        else:
-            csv_file = f'{csv_file}_raw'
-
-        csv_path = os.path.join(save_location, f'{csv_file}.csv')
-        with open(csv_path, 'w', newline='') as cf:
-            writer = csv.DictWriter(cf, fieldnames=['tag', 'value'])
-            writer.writeheader()
-            for tag, value in data.items():
-                writer.writerow({'tag': tag, 'value': value})
-
-        return format_csv(og_file, csv_file, include_raw, is_array, save_location)
+        formatted_name = get_revisioned_filename(csv_file, save_location)
+        output_path = os.path.join(save_location, f'{formatted_name}.csv')
+        write_formatted_csv(data, is_array, output_path)
+        return True, output_path
 
     except Exception as e:
         return False, f"Error writing CSV: {e}"
@@ -260,7 +268,7 @@ class MainWindow(QMainWindow):
             lambda: self.read_tag_clicked(self.tag_input.text(), self.ip_input.text(), self.csv_save_path_input.text()))
         
         self.about_button.clicked.connect(
-            lambda: QMessageBox.about(self, "About", "This tool was written by Parker Mojsiejenko.\n\nIt uses the following libraries:\n - pycomm3\n - PySide6\n - pandas\n - qdarktheme"))
+            lambda: QMessageBox.about(self, "About", "This tool was written by Parker Mojsiejenko.\n\nIt uses the following libraries:\n - pycomm3\n - PySide6\n - qdarktheme"))
 
         self.help_button.clicked.connect(
             lambda: QMessageBox.about(self, "Help", "This tool requires tag names to be formatted in a specific way to read their data.\n\nIf the tag is an array, it will be in the following format: tag_name[start]{length}\n\nThe [start] can be omitted if you want to start at [0] and if the length is omitted, it will only read the [x] (or [0] if its omitted) member of the array.\n\nIf the tags are program scope tags, the tag name will need to start with Program:program_name.rest_of_tag_name.\n\nFor example, if you want to read a program scope array tag named my_array and start at the 5th member and read 50 members, the tag name would be my_array[4]{50} and if it was a program scope tag in the program my_program it would be Program:my_program.my_array[4]{50}\n\nIf the Output Raw File check box is checked, the non-formatted file will also be created. Both files will be saved in the specified folder you selected and if no folder was specified, the files will be saved where the EXE file resides.\n\nThe tool will not overwrite any previous CSV files. If one already exists with the same name, it will append a revision number that will increment each time a file is created and saved."))
