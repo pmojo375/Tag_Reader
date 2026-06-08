@@ -1,4 +1,4 @@
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
@@ -113,14 +113,13 @@ def format_csv(og_file, file, include_raw, is_array, save_location):
         df_pivot.to_csv(os.path.join(save_location, f'{og_file}.csv'), index=False)
 
         if not include_raw:
-            # remove raw file
             os.remove(os.path.join(save_location, f'{file}.csv'))
-        
-        return True
-        
+
+        output_path = os.path.join(save_location, f'{og_file}.csv')
+        return True, output_path
+
     except Exception as e:
-        print(f"Error formatting CSV: {e}")
-        return False
+        return False, f"Error formatting CSV: {e}"
 
 
 def flatten_dict(d, parent_key='', sep='.'):
@@ -161,42 +160,52 @@ def write_to_csv(data, csv_file, include_raw, is_array, save_location):
             for tag, value in data.items():
                 writer.writerow({'tag': tag, 'value': value})
 
-        success = format_csv(og_file, csv_file, include_raw, is_array, save_location)
-        return success
-        
+        return format_csv(og_file, csv_file, include_raw, is_array, save_location)
+
     except Exception as e:
-        print(f"Error writing CSV: {e}")
-        return False
+        return False, f"Error writing CSV: {e}"
 
 
 def read_tag(tag, ip, file_name_input, include_raw, save_location):
     try:
         with LogixDriver(ip) as plc:
             read_result = plc.read(tag)
-            
+
         if read_result.error:
-            print(f"PLC read error: {read_result.error}")
-            return False
+            return False, f"PLC read error: {read_result.error}"
 
-        # Use sanitize_filename function for better file handling
         file_name_input = sanitize_filename(file_name_input)
-        
-        if not read_result.error:
-            data = {read_result.tag: read_result.value}
-        
-            data = flatten_dict(data)
-            is_array = should_format_as_array(
-                data, top_level_is_list=type(read_result.value) is list)
+        data = {read_result.tag: read_result.value}
+        data = flatten_dict(data)
+        is_array = should_format_as_array(
+            data, top_level_is_list=type(read_result.value) is list)
 
-            success = write_to_csv(data, file_name_input, include_raw, is_array, save_location)
-            return success
-        else:
-            print(f"PLC read error: {read_result.error}")
-            return False
-            
+        success, message = write_to_csv(
+            data, file_name_input, include_raw, is_array, save_location)
+        if success:
+            return True, f"Tag read successfully!\n\nSaved to:\n{message}"
+        return False, message
+
     except Exception as e:
-        print(f"Error reading tag: {e}")
-        return False
+        return False, f"Error reading tag: {e}"
+
+
+class TagReadWorker(QThread):
+    finished = Signal(bool, str)
+
+    def __init__(self, tag, ip, file_name, include_raw, save_location):
+        super().__init__()
+        self.tag = tag
+        self.ip = ip
+        self.file_name = file_name
+        self.include_raw = include_raw
+        self.save_location = save_location
+
+    def run(self):
+        success, message = read_tag(
+            self.tag, self.ip, self.file_name,
+            self.include_raw, self.save_location)
+        self.finished.emit(success, message)
 
 
 class MainWindow(QMainWindow):
@@ -243,8 +252,10 @@ class MainWindow(QMainWindow):
         self.hor_layout.addWidget(self.help_button)
         self.layout.addLayout(self.hor_layout)
 
+        self._read_worker = None
+
         self.read_history()
-        
+
         self.read_tag_button.clicked.connect(
             lambda: self.read_tag_clicked(self.tag_input.text(), self.ip_input.text(), self.csv_save_path_input.text()))
         
@@ -265,30 +276,45 @@ class MainWindow(QMainWindow):
         
 
     def read_tag_clicked(self, tag_input, ip_input, save_location):
+        if self._read_worker and self._read_worker.isRunning():
+            return
+
         try:
-            # Validate inputs first
             if self.file_name_input.text() == '':
                 file_name = tag_input
             else:
                 file_name = self.file_name_input.text()
-            
+
             self.validate_inputs(tag_input, ip_input, file_name)
-            
+
             if save_location == '':
                 save_location = '.'
 
-            success = read_tag(tag_input, ip_input, file_name, self.raw_file_checkbox.isChecked(), save_location)
-            
-            if success:
-                self.save_history()
-                QMessageBox.information(self, "Success", "Tag read successfully!")
-            else:
-                QMessageBox.warning(self, "Warning", "Tag read failed. Check console for details.")
-                
+            self._set_reading_state(True)
+            self._read_worker = TagReadWorker(
+                tag_input, ip_input, file_name,
+                self.raw_file_checkbox.isChecked(), save_location)
+            self._read_worker.finished.connect(self._on_read_finished)
+            self._read_worker.start()
+
         except ValueError as e:
             QMessageBox.critical(self, "Input Error", str(e))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An unexpected error occurred: {e}")
+
+    def _set_reading_state(self, reading):
+        self.read_tag_button.setEnabled(not reading)
+        self.read_tag_button.setText("Reading..." if reading else "Read Tag")
+
+    def _on_read_finished(self, success, message):
+        self._set_reading_state(False)
+        self._read_worker = None
+
+        if success:
+            self.save_history()
+            QMessageBox.information(self, "Success", message)
+        else:
+            QMessageBox.warning(self, "Tag Read Failed", message)
 
 
     def read_history(self):
