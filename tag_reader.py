@@ -1,5 +1,5 @@
 from PySide6.QtCore import QSettings, QThread, Signal, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QLineEdit,
@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QWidget,
     QMessageBox,
     QHBoxLayout,
-    QCheckBox,
     QFileDialog,
 )
 from PySide6 import QtGui
@@ -357,13 +356,20 @@ class MainWindow(QMainWindow):
 
         self.tag_input = QLineEdit()
         self.ip_input = QLineEdit()
-        self.raw_file_checkbox = QCheckBox("Output Raw File")
-        self.compact_wide_checkbox = QCheckBox("Compact Wide Output")
-        self.debug_log_checkbox = QCheckBox("Enable Debug Logging")
         self.read_tag_button = QPushButton("Read Tag")
         self.file_name_input = QLineEdit()
-        self.about_button = QPushButton("About")
-        self.help_button = QPushButton("Help")
+
+        self.raw_file_action = QAction("Output Raw File", self, checkable=True)
+        self.compact_wide_action = QAction("Compact Wide Output", self, checkable=True)
+        self.debug_log_action = QAction("Enable Debug Logging", self, checkable=True)
+        options_menu = self.menuBar().addMenu("Options")
+        options_menu.addAction(self.raw_file_action)
+        options_menu.addAction(self.compact_wide_action)
+        options_menu.addAction(self.debug_log_action)
+
+        help_menu = self.menuBar().addMenu("Help")
+        help_menu.addAction("About", self._show_about)
+        help_menu.addAction("Usage", self._show_help)
 
         # CSV Save Location Layout
         self.csv_save_path_layout = QHBoxLayout()
@@ -380,19 +386,11 @@ class MainWindow(QMainWindow):
         # size ip input to be able to handle 40 characters
         self.ip_input.setFixedWidth(IP_INPUT_WIDTH)
 
-        self.hor_layout = QHBoxLayout()
-
         self.layout.addWidget(self.ip_input)
         self.layout.addWidget(self.tag_input)
-        self.layout.addWidget(self.raw_file_checkbox)
-        self.layout.addWidget(self.compact_wide_checkbox)
-        self.layout.addWidget(self.debug_log_checkbox)
         self.layout.addWidget(self.read_tag_button)
         self.layout.addWidget(self.file_name_input)
         self.layout.addLayout(self.csv_save_path_layout)
-        self.hor_layout.addWidget(self.about_button)
-        self.hor_layout.addWidget(self.help_button)
-        self.layout.addLayout(self.hor_layout)
 
         self._read_worker = None
 
@@ -406,19 +404,43 @@ class MainWindow(QMainWindow):
         ):
             line_edit.returnPressed.connect(self._trigger_read)
 
-        self.about_button.clicked.connect(
-            lambda: QMessageBox.about(self, "About", "This tool was written by Parker Mojsiejenko.\n\nIt uses the following libraries:\n - pycomm3\n - PySide6\n - qdarktheme"))
-
-        self.help_button.clicked.connect(
-            lambda: QMessageBox.about(self, "Help", "This tool requires tag names to be formatted in a specific way to read their data.\n\nIf the tag is an array, it will be in the following format: tag_name[start]{length}\n\nThe [start] can be omitted if you want to start at [0] and if the length is omitted, it will only read the [x] (or [0] if its omitted) member of the array.\n\nIf the tags are program scope tags, the tag name will need to start with Program:program_name.rest_of_tag_name.\n\nFor example, if you want to read a program scope array tag named my_array and start at the 5th member and read 50 members, the tag name would be my_array[4]{50} and if it was a program scope tag in the program my_program it would be Program:my_program.my_array[4]{50}\n\nIf the Output Raw File check box is checked, the non-formatted file will also be created. Both files will be saved in the specified folder you selected and if no folder was specified, the files will be saved where the EXE file resides.\n\nThe tool will not overwrite any previous CSV files. If one already exists with the same name, it will append a revision number that will increment each time a file is created and saved."))
-        
         self.csv_save_path_browse_button.clicked.connect(
             lambda: self.csv_save_path_input.setText(QFileDialog.getExistingDirectory()))
 
         widget = QWidget()
         widget.setLayout(self.layout)
         self.setCentralWidget(widget)
-        self.setFixedSize(self.layout.sizeHint())
+        layout_hint = self.layout.sizeHint()
+        self.setFixedSize(
+            layout_hint.width(),
+            layout_hint.height() + self.menuBar().sizeHint().height())
+
+    def _show_about(self):
+        QMessageBox.about(
+            self, "About",
+            "This tool was written by Parker Mojsiejenko.\n\n"
+            "It uses the following libraries:\n"
+            " - pycomm3\n - PySide6\n - qdarktheme")
+
+    def _show_help(self):
+        QMessageBox.about(
+            self, "Help",
+            "This tool requires tag names to be formatted in a specific way to read their data.\n\n"
+            "If the tag is an array, it will be in the following format: tag_name[start]{length}\n\n"
+            "The [start] can be omitted if you want to start at [0] and if the length is omitted, "
+            "it will only read the [x] (or [0] if its omitted) member of the array.\n\n"
+            "If the tags are program scope tags, the tag name will need to start with "
+            "Program:program_name.rest_of_tag_name.\n\n"
+            "For example, if you want to read a program scope array tag named my_array and start at "
+            "the 5th member and read 50 members, the tag name would be my_array[4]{50} and if it was "
+            "a program scope tag in the program my_program it would be "
+            "Program:my_program.my_array[4]{50}\n\n"
+            "Output options are available under the Options menu. If Output Raw File is enabled, "
+            "the non-formatted file will also be created. Files are saved in the specified folder, "
+            "or next to the EXE if no folder is specified.\n\n"
+            "The tool will not overwrite any previous CSV files. If one already exists with the same "
+            "name, it will append a revision number that will increment each time a file is created "
+            "and saved.")
 
     def _trigger_read(self):
         self.read_tag_clicked(
@@ -439,14 +461,14 @@ class MainWindow(QMainWindow):
             self.validate_inputs(tag_input, ip_input, file_name)
             save_location = resolve_save_location(save_location)
 
-            log_enabled = self.debug_log_checkbox.isChecked()
+            log_enabled = self.debug_log_action.isChecked()
             set_debug_logging(log_enabled)
 
             self._set_reading_state(True)
             self._read_worker = TagReadWorker(
                 tag_input, ip_input, file_name,
-                self.raw_file_checkbox.isChecked(), save_location,
-                log_enabled, self.compact_wide_checkbox.isChecked())
+                self.raw_file_action.isChecked(), save_location,
+                log_enabled, self.compact_wide_action.isChecked())
             self._read_worker.finished.connect(self._on_read_finished)
             self._read_worker.start()
 
@@ -487,11 +509,11 @@ class MainWindow(QMainWindow):
         self.ip_input.setText(self.settings.value('ip', ''))
         self.tag_input.setText(self.settings.value('tag', ''))
         self.file_name_input.setText(self.settings.value('file', ''))
-        self.raw_file_checkbox.setChecked(
+        self.raw_file_action.setChecked(
             self.settings.value('raw', False, type=bool))
-        self.compact_wide_checkbox.setChecked(
+        self.compact_wide_action.setChecked(
             self.settings.value('compact_wide', False, type=bool))
-        self.debug_log_checkbox.setChecked(
+        self.debug_log_action.setChecked(
             self.settings.value('debug_log', False, type=bool))
         self.csv_save_path_input.setText(self.settings.value('save_path', ''))
 
@@ -512,9 +534,9 @@ class MainWindow(QMainWindow):
         self.settings.setValue('ip', self.ip_input.text())
         self.settings.setValue('tag', self.tag_input.text())
         self.settings.setValue('file', self.file_name_input.text())
-        self.settings.setValue('raw', self.raw_file_checkbox.isChecked())
-        self.settings.setValue('compact_wide', self.compact_wide_checkbox.isChecked())
-        self.settings.setValue('debug_log', self.debug_log_checkbox.isChecked())
+        self.settings.setValue('raw', self.raw_file_action.isChecked())
+        self.settings.setValue('compact_wide', self.compact_wide_action.isChecked())
+        self.settings.setValue('debug_log', self.debug_log_action.isChecked())
         self.settings.setValue('save_path', self.csv_save_path_input.text())
 
 app = QApplication(sys.argv)
