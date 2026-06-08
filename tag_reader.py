@@ -96,13 +96,24 @@ def sanitize_filename(filename):
 
 def extract_index(tag):
     tag = re.sub(r'^Program:[^.]+\.', '', tag)
-    match = re.findall(r'\[(\d+)\]', tag)
-    if len(match) >= 2:
-        return (int(match[0]) + int(match[1]))
-    elif len(match) == 1:
-        return int(match[0])
-    else:
-        return None
+    match = re.search(r'\[(\d+)\]', tag)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def natural_sort_key(name):
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r'(\d+)', name)
+    ]
+
+
+def parse_array_field(field):
+    match = re.match(r'^(.+)\[(\d+)\]$', field)
+    if match:
+        return match.group(1), int(match.group(2))
+    return field, None
 
 def should_format_as_array(data, top_level_is_list=False):
     """Pivot only for direct array reads or pure array data (no mixed struct fields)."""
@@ -146,7 +157,10 @@ def get_revisioned_filename(base_name, save_location, suffix=''):
     return f'{base_name}{suffix}_{rev_num}'
 
 
-def pivot_array_data(data):
+def pivot_array_data(data, compact=False):
+    if compact:
+        return _pivot_array_compact(data)
+
     rows = defaultdict(dict)
     columns = set()
 
@@ -156,12 +170,57 @@ def pivot_array_data(data):
         columns.add(child)
         rows[idx][child] = value
 
-    column_list = sorted(columns)
+    column_list = sorted(columns, key=natural_sort_key)
     header = ['index'] + column_list
     body = [
         [idx] + [rows[idx].get(col, '') for col in column_list]
         for idx in sorted(rows.keys())
     ]
+    return header, body
+
+
+def _pivot_array_compact(data):
+    scalars = defaultdict(dict)
+    arrays = defaultdict(lambda: defaultdict(dict))
+
+    for tag, value in data.items():
+        idx = extract_index(tag)
+        field = extract_child_names(tag)
+        base_name, element_idx = parse_array_field(field)
+
+        if element_idx is not None:
+            arrays[idx][base_name][element_idx] = value
+        else:
+            scalars[idx][field] = value
+
+    columns = set()
+    for idx_values in scalars.values():
+        columns.update(idx_values.keys())
+    for idx_values in arrays.values():
+        columns.update(idx_values.keys())
+
+    column_list = sorted(columns, key=natural_sort_key)
+    all_indices = set(scalars.keys()) | set(arrays.keys())
+    header = ['index'] + column_list
+    body = []
+
+    for idx in sorted(all_indices):
+        row = [idx]
+        for col in column_list:
+            if col in scalars.get(idx, {}):
+                val = scalars[idx][col]
+                row.append(val if val is not None else '')
+            elif col in arrays.get(idx, {}):
+                elements = arrays[idx][col]
+                ordered = [
+                    elements[i] if elements[i] is not None else ''
+                    for i in sorted(elements.keys())
+                ]
+                row.append(', '.join(str(v) for v in ordered))
+            else:
+                row.append('')
+        body.append(row)
+
     return header, body
 
 
@@ -178,11 +237,11 @@ def write_raw_csv(data, path):
             writer.writerow({'tag': tag, 'value': value if value is not None else ''})
 
 
-def write_formatted_csv(data, is_array, output_path):
+def write_formatted_csv(data, is_array, output_path, compact=False):
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
         if is_array:
-            header, body = pivot_array_data(data)
+            header, body = pivot_array_data(data, compact=compact)
             writer.writerow(header)
             writer.writerows(body)
         else:
@@ -210,7 +269,7 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
-def write_to_csv(data, csv_file, include_raw, is_array, save_location):
+def write_to_csv(data, csv_file, include_raw, is_array, save_location, compact=False):
     try:
         if include_raw:
             raw_name = get_revisioned_filename(csv_file, save_location, '_raw')
@@ -218,14 +277,15 @@ def write_to_csv(data, csv_file, include_raw, is_array, save_location):
 
         formatted_name = get_revisioned_filename(csv_file, save_location)
         output_path = os.path.join(save_location, f'{formatted_name}.csv')
-        write_formatted_csv(data, is_array, output_path)
+        write_formatted_csv(data, is_array, output_path, compact=compact)
         return True, output_path
 
     except Exception as e:
         return False, f"Error writing CSV: {e}"
 
 
-def read_tag(tag, ip, file_name_input, include_raw, save_location, log_enabled=False):
+def read_tag(tag, ip, file_name_input, include_raw, save_location,
+             log_enabled=False, compact=False):
     try:
         if log_enabled:
             logger.info(
@@ -247,7 +307,8 @@ def read_tag(tag, ip, file_name_input, include_raw, save_location, log_enabled=F
             data, top_level_is_list=type(read_result.value) is list)
 
         success, output_path = write_to_csv(
-            data, file_name_input, include_raw, is_array, save_location)
+            data, file_name_input, include_raw, is_array, save_location,
+            compact=compact)
         if success:
             if log_enabled:
                 logger.info("Tag read successful, saved to: %s", output_path)
@@ -266,7 +327,8 @@ def read_tag(tag, ip, file_name_input, include_raw, save_location, log_enabled=F
 class TagReadWorker(QThread):
     finished = Signal(bool, str, str)
 
-    def __init__(self, tag, ip, file_name, include_raw, save_location, log_enabled):
+    def __init__(self, tag, ip, file_name, include_raw, save_location,
+                 log_enabled, compact):
         super().__init__()
         self.tag = tag
         self.ip = ip
@@ -274,12 +336,13 @@ class TagReadWorker(QThread):
         self.include_raw = include_raw
         self.save_location = save_location
         self.log_enabled = log_enabled
+        self.compact = compact
 
     def run(self):
         success, message, output_path = read_tag(
             self.tag, self.ip, self.file_name,
             self.include_raw, self.save_location,
-            log_enabled=self.log_enabled)
+            log_enabled=self.log_enabled, compact=self.compact)
         self.finished.emit(success, message, output_path)
 
 
@@ -295,6 +358,7 @@ class MainWindow(QMainWindow):
         self.tag_input = QLineEdit()
         self.ip_input = QLineEdit()
         self.raw_file_checkbox = QCheckBox("Output Raw File")
+        self.compact_wide_checkbox = QCheckBox("Compact Wide Output")
         self.debug_log_checkbox = QCheckBox("Enable Debug Logging")
         self.read_tag_button = QPushButton("Read Tag")
         self.file_name_input = QLineEdit()
@@ -321,6 +385,7 @@ class MainWindow(QMainWindow):
         self.layout.addWidget(self.ip_input)
         self.layout.addWidget(self.tag_input)
         self.layout.addWidget(self.raw_file_checkbox)
+        self.layout.addWidget(self.compact_wide_checkbox)
         self.layout.addWidget(self.debug_log_checkbox)
         self.layout.addWidget(self.read_tag_button)
         self.layout.addWidget(self.file_name_input)
@@ -380,7 +445,8 @@ class MainWindow(QMainWindow):
             self._set_reading_state(True)
             self._read_worker = TagReadWorker(
                 tag_input, ip_input, file_name,
-                self.raw_file_checkbox.isChecked(), save_location, log_enabled)
+                self.raw_file_checkbox.isChecked(), save_location,
+                log_enabled, self.compact_wide_checkbox.isChecked())
             self._read_worker.finished.connect(self._on_read_finished)
             self._read_worker.start()
 
@@ -423,6 +489,8 @@ class MainWindow(QMainWindow):
         self.file_name_input.setText(self.settings.value('file', ''))
         self.raw_file_checkbox.setChecked(
             self.settings.value('raw', False, type=bool))
+        self.compact_wide_checkbox.setChecked(
+            self.settings.value('compact_wide', False, type=bool))
         self.debug_log_checkbox.setChecked(
             self.settings.value('debug_log', False, type=bool))
         self.csv_save_path_input.setText(self.settings.value('save_path', ''))
@@ -445,6 +513,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue('tag', self.tag_input.text())
         self.settings.setValue('file', self.file_name_input.text())
         self.settings.setValue('raw', self.raw_file_checkbox.isChecked())
+        self.settings.setValue('compact_wide', self.compact_wide_checkbox.isChecked())
         self.settings.setValue('debug_log', self.debug_log_checkbox.isChecked())
         self.settings.setValue('save_path', self.csv_save_path_input.text())
 
