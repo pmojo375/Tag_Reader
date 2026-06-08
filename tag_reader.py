@@ -10,12 +10,13 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QHBoxLayout,
     QCheckBox,
-    QFileDialog
+    QFileDialog,
 )
 from PySide6 import QtGui
 import sys
 from pycomm3 import LogixDriver
 import csv
+import logging
 import re
 import qdarktheme
 import os
@@ -32,6 +33,33 @@ def get_default_save_location():
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return basedir
+
+
+logger = logging.getLogger('tag_reader')
+_log_handler = None
+
+
+def set_debug_logging(enabled):
+    global _log_handler
+    pycomm3_logger = logging.getLogger('pycomm3')
+
+    if enabled:
+        if _log_handler is None:
+            log_path = os.path.join(get_default_save_location(), 'tag_reader.log')
+            _log_handler = logging.FileHandler(log_path, encoding='utf-8')
+            _log_handler.setFormatter(logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s',
+                datefmt='%m/%d/%Y %I:%M:%S %p',
+            ))
+            logger.addHandler(_log_handler)
+            pycomm3_logger.addHandler(_log_handler)
+        logger.setLevel(logging.DEBUG)
+        pycomm3_logger.setLevel(logging.DEBUG)
+    elif _log_handler is not None:
+        logger.removeHandler(_log_handler)
+        pycomm3_logger.removeHandler(_log_handler)
+        _log_handler.close()
+        _log_handler = None
 
 
 def resolve_save_location(save_location):
@@ -197,12 +225,19 @@ def write_to_csv(data, csv_file, include_raw, is_array, save_location):
         return False, f"Error writing CSV: {e}"
 
 
-def read_tag(tag, ip, file_name_input, include_raw, save_location):
+def read_tag(tag, ip, file_name_input, include_raw, save_location, log_enabled=False):
     try:
+        if log_enabled:
+            logger.info(
+                "Tag read requested: Tag: %s, IP: %s, File Name: %s",
+                tag, ip, file_name_input)
+
         with LogixDriver(ip) as plc:
             read_result = plc.read(tag)
 
         if read_result.error:
+            if log_enabled:
+                logger.error("PLC read error: %s", read_result.error)
             return False, f"PLC read error: {read_result.error}", ''
 
         file_name_input = sanitize_filename(file_name_input)
@@ -214,28 +249,37 @@ def read_tag(tag, ip, file_name_input, include_raw, save_location):
         success, output_path = write_to_csv(
             data, file_name_input, include_raw, is_array, save_location)
         if success:
+            if log_enabled:
+                logger.info("Tag read successful, saved to: %s", output_path)
             return True, f"Tag read successfully!\n\nSaved to:\n{output_path}", output_path
+
+        if log_enabled:
+            logger.error("CSV write failed: %s", output_path)
         return False, output_path, ''
 
     except Exception as e:
+        if log_enabled:
+            logger.exception("Error reading tag")
         return False, f"Error reading tag: {e}", ''
 
 
 class TagReadWorker(QThread):
     finished = Signal(bool, str, str)
 
-    def __init__(self, tag, ip, file_name, include_raw, save_location):
+    def __init__(self, tag, ip, file_name, include_raw, save_location, log_enabled):
         super().__init__()
         self.tag = tag
         self.ip = ip
         self.file_name = file_name
         self.include_raw = include_raw
         self.save_location = save_location
+        self.log_enabled = log_enabled
 
     def run(self):
         success, message, output_path = read_tag(
             self.tag, self.ip, self.file_name,
-            self.include_raw, self.save_location)
+            self.include_raw, self.save_location,
+            log_enabled=self.log_enabled)
         self.finished.emit(success, message, output_path)
 
 
@@ -251,6 +295,7 @@ class MainWindow(QMainWindow):
         self.tag_input = QLineEdit()
         self.ip_input = QLineEdit()
         self.raw_file_checkbox = QCheckBox("Output Raw File")
+        self.debug_log_checkbox = QCheckBox("Enable Debug Logging")
         self.read_tag_button = QPushButton("Read Tag")
         self.file_name_input = QLineEdit()
         self.about_button = QPushButton("About")
@@ -276,6 +321,7 @@ class MainWindow(QMainWindow):
         self.layout.addWidget(self.ip_input)
         self.layout.addWidget(self.tag_input)
         self.layout.addWidget(self.raw_file_checkbox)
+        self.layout.addWidget(self.debug_log_checkbox)
         self.layout.addWidget(self.read_tag_button)
         self.layout.addWidget(self.file_name_input)
         self.layout.addLayout(self.csv_save_path_layout)
@@ -328,10 +374,13 @@ class MainWindow(QMainWindow):
             self.validate_inputs(tag_input, ip_input, file_name)
             save_location = resolve_save_location(save_location)
 
+            log_enabled = self.debug_log_checkbox.isChecked()
+            set_debug_logging(log_enabled)
+
             self._set_reading_state(True)
             self._read_worker = TagReadWorker(
                 tag_input, ip_input, file_name,
-                self.raw_file_checkbox.isChecked(), save_location)
+                self.raw_file_checkbox.isChecked(), save_location, log_enabled)
             self._read_worker.finished.connect(self._on_read_finished)
             self._read_worker.start()
 
@@ -372,15 +421,11 @@ class MainWindow(QMainWindow):
         self.ip_input.setText(self.settings.value('ip', ''))
         self.tag_input.setText(self.settings.value('tag', ''))
         self.file_name_input.setText(self.settings.value('file', ''))
-        checked = self.settings.value('raw', "False")
+        self.raw_file_checkbox.setChecked(
+            self.settings.value('raw', False, type=bool))
+        self.debug_log_checkbox.setChecked(
+            self.settings.value('debug_log', False, type=bool))
         self.csv_save_path_input.setText(self.settings.value('save_path', ''))
-
-        if checked == "True":
-            checked = True
-        else:
-            checked = False
-
-        self.raw_file_checkbox.setChecked(checked)
 
 
     def validate_inputs(self, tag, ip, file_name):
@@ -400,6 +445,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue('tag', self.tag_input.text())
         self.settings.setValue('file', self.file_name_input.text())
         self.settings.setValue('raw', self.raw_file_checkbox.isChecked())
+        self.settings.setValue('debug_log', self.debug_log_checkbox.isChecked())
         self.settings.setValue('save_path', self.csv_save_path_input.text())
 
 app = QApplication(sys.argv)
